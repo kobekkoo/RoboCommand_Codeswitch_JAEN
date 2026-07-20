@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: General methodology questions
+    url: https://github.com/kobekkoo/RoboCommand_Codeswitch_JAEN/discussions
+    about: Use public GitHub Discussions for general questions.

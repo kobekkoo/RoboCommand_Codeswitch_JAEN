@@ -1,0 +1,45 @@
+name: Data-quality report
+description: Report a non-sensitive transcript, label, or metadata issue.
+title: "[Data quality]: "
+labels:
+  - data-quality
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach raw participant audio, consent documents, or identifying information.
+  - type: input
+    id: version
+    attributes:
+      label: Dataset version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: sample
+    attributes:
+      label: Sample ID
+      placeholder: "jaen_000001"
+    validations:
+      required: true
+  - type: dropdown
+    id: issue
+    attributes:
+      label: Issue type
+      options:
+        - Transcript
+        - Code-switch category
+        - Command label
+        - Metadata
+        - Duplicate
+        - Audio quality
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Include only the minimum non-sensitive text required.
+    validations:
+      required: true

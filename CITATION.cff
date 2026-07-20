@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this dataset or toolkit, please cite it using these metadata."
+title: "RoboCommand_Codeswitch_JAEN"
+abstract: "A pilot Japanese-English code-switched speech benchmark for evaluating speech-to-text systems on robotic commands."
+type: dataset
+authors:
+  - name: "kobekkoo"
+version: "0.1.0"
+date-released: "2026-07-20"
+repository-code: "https://github.com/kobekkoo/RoboCommand_Codeswitch_JAEN"
+repository-artifact: "https://huggingface.co/datasets/kobekkoo/RoboCommand_Codeswitch_JAEN"
+url: "https://huggingface.co/datasets/kobekkoo/RoboCommand_Codeswitch_JAEN"
+license: "other"
+keywords:
+  - automatic speech recognition
+  - code-switching
+  - Japanese
+  - English
+  - robotics
+  - audio dataset

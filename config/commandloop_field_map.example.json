@@ -1,0 +1,16 @@
+{
+  "sample_id": "id",
+  "file_name": "audio_filename",
+  "speaker_id": "speaker_id",
+  "transcript": "reference_transcript",
+  "matrix_language": "matrix_language",
+  "embedded_language": "embedded_language",
+  "code_switch_type": "code_switch_type",
+  "switch_direction": "switch_direction",
+  "command_action": "command_action",
+  "command_object": "command_object",
+  "command_destination": "command_destination",
+  "environment": "environment",
+  "consent_for_publication": "consent_for_publication",
+  "split": "split"
+}

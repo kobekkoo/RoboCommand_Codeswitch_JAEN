@@ -1,0 +1,3 @@
+No approved WAV files are included in this pre-release placeholder.
+
+When approved audio exists, place consent-cleared 16 kHz mono WAV files in this folder alongside metadata.csv before uploading to Hugging Face.

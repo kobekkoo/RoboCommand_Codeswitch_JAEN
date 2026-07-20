@@ -1,0 +1,5 @@
+model,model_version,evaluation_date,slice_name,sample_count,cer,space_delimited_wer,command_action_accuracy,command_object_accuracy,notes
+MODEL_NAME,MODEL_VERSION,YYYY-MM-DD,overall,0,,,,,
+MODEL_NAME,MODEL_VERSION,YYYY-MM-DD,word,0,,,,,
+MODEL_NAME,MODEL_VERSION,YYYY-MM-DD,phrase,0,,,,,
+MODEL_NAME,MODEL_VERSION,YYYY-MM-DD,clause,0,,,,,

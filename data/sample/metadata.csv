@@ -1,0 +1,4 @@
+file_name,sample_id,speaker_id,transcript,matrix_language,embedded_language,code_switch_type,switch_direction,command_action,command_object,command_source,command_destination,command_direction,command_quantity,environment,device_type,duration_seconds,prompt_id,split,consent_for_publication,review_status,schema_version,notes
+jaen_000001.wav,jaen_000001,speaker_001,赤い box を取って,ja,en,word,ja_to_en,pick_up,red_box,,,,,quiet_indoor,laptop_microphone,,prompt_001,test,true,reviewed,0.1,
+jaen_000002.wav,jaen_000002,speaker_001,Pick up the 赤い箱,en,ja,phrase,en_to_ja,pick_up,red_box,,,,,quiet_indoor,laptop_microphone,,prompt_002,test,true,reviewed,0.1,
+jaen_000003.wav,jaen_000003,speaker_002,赤い箱を取って then place it on the table,ja,en,clause,ja_to_en,place,red_box,,table,,,quiet_indoor,phone_microphone,,prompt_003,test,true,reviewed,0.1,

@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.DS_Store
+
+# Local builds and exports
+build/
+dist/
+*.egg-info/
+raw/
+raw_data/
+commandloop_exports/
+
+# Raw or gated audio/data: never commit to GitHub
+data/raw/
+data/processed/
+data/private/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.ogg
+*.aac
+
+# Allow folder placeholders
+!data/**/.gitkeep
+
+# Private consent and participant records
+consent/
+consents/
+consent_records/
+participant_records/
+private_participant_records/
+*completed_consent*
+*signed_consent*
+*participant_record*
+
+# Secrets, credentials, and local environment
+.env
+.env.*
+*.token
+*.secret
+*.key
+*.pem
+*_credentials.json
+credentials/
+secrets/
+hf_token
+huggingface_token
