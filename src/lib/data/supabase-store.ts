@@ -1236,6 +1236,20 @@ export async function markPlaygroundPromoted(playgroundSessionId: string, evalua
   return mapPlaygroundSession(throwIfError(data, error, "Could not mark playground promoted"));
 }
 
+export async function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[] }) {
+  const supabase = await client();
+  const { data, error } = await supabase
+    .from("playground_sessions")
+    .update({
+      results_json: input.resultsJson,
+      sample_recording_ids: input.sampleRecordingIds,
+    })
+    .eq("id", input.playgroundSessionId)
+    .select("*")
+    .single();
+  return mapPlaygroundSession(throwIfError(data, error, "Could not update playground session"));
+}
+
 export async function getModelConfigs() {
   const data = await getData();
   const env = getEnv();

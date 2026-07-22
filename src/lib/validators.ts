@@ -216,6 +216,11 @@ export const playgroundPromoteSchema = z.object({
   name: z.string().trim().min(3).max(120),
 });
 
+export const playgroundSessionUpdateSchema = z.object({
+  resultsJson: z.array(z.record(z.string(), z.unknown())),
+  sampleRecordingIds: z.array(z.string().min(1)),
+});
+
 export function validateAudioUpload(file: File | Blob, mimeType: string) {
   if (file.size > MAX_AUDIO_FILE_BYTES) {
     return { ok: false as const, error: "Audio file is larger than the 10 MB MVP limit." };

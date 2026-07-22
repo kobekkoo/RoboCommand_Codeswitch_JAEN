@@ -2,11 +2,13 @@
 
 import type * as React from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
   Clock,
   Columns3,
   Download,
@@ -23,6 +25,8 @@ import {
   Save,
   Search,
   Settings2,
+  Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import { ScorerConfigModal } from "@/components/admin/ScorerConfigModal";
@@ -32,6 +36,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Select, Textarea } from "@/components/ui/forms";
 import type { EvalDataset, PlaygroundResult, PlaygroundScorerOutput, PlaygroundSession, ScorerConfig, ScorerType, SttModelConfig } from "@/lib/domain";
 import { modelCatalogEntry, modelProviderLabel } from "@/lib/stt/model-catalog";
+
+type OutputTableRow = {
+  rowKey: string;
+  recordingId?: string;
+  inputText?: string;
+  instruction?: string;
+  humanTranscript?: string;
+  metadataJson?: Record<string, unknown>;
+  isDraft?: boolean;
+  resultsByModel: Map<string, PlaygroundResult>;
+};
+
+type OutputUndoSnapshot = {
+  latestSession?: PlaygroundSession;
+  draftRows: OutputTableRow[];
+};
 
 export function EvaluationPlaygroundView({
   datasets,
@@ -46,6 +66,8 @@ export function EvaluationPlaygroundView({
 }) {
   const router = useRouter();
   const abortRef = useRef<AbortController | null>(null);
+  const outputUndoStackRef = useRef<OutputUndoSnapshot[]>([]);
+  const draftRowCounterRef = useRef(0);
   const enabledModels = useMemo(() => modelConfigs.filter((model) => model.isEnabled), [modelConfigs]);
   const [datasetId, setDatasetId] = useState(datasets[0]?.id ?? "");
   const [sampleSize, setSampleSize] = useState(3);
@@ -66,15 +88,21 @@ export function EvaluationPlaygroundView({
   const [outputFilter, setOutputFilter] = useState("");
   const [showDisplayMenu, setShowDisplayMenu] = useState(false);
   const [showMetricInfo, setShowMetricInfo] = useState(false);
+  const [modelSelectionOrder, setModelSelectionOrder] = useState<string[]>(() => modelConfigs.map((model) => model.id));
   const [modelColumnOrder, setModelColumnOrder] = useState<string[]>(() => playgroundSessions[0]?.modelConfigIds ?? []);
   const [visibleModelColumnIds, setVisibleModelColumnIds] = useState<Set<string>>(() => new Set(playgroundSessions[0]?.modelConfigIds ?? []));
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ input: 360 });
+  const [outputRowHeight, setOutputRowHeight] = useState(280);
+  const [draftOutputRows, setDraftOutputRows] = useState<OutputTableRow[]>([]);
+  const [undoDepth, setUndoDepth] = useState(0);
   const [promoting, setPromoting] = useState(false);
   const availableScorers = useMemo(() => mergeScorers(scorerConfigs, localScorers), [localScorers, scorerConfigs]);
   const activeDataset = datasets.find((dataset) => dataset.id === datasetId);
-  const selectedModels = modelConfigs.filter((model) => selectedModelIds.has(model.id));
+  const orderedModelConfigs = useMemo(() => orderModelsByIds(modelConfigs, modelSelectionOrder), [modelConfigs, modelSelectionOrder]);
+  const selectedModels = orderedModelConfigs.filter((model) => selectedModelIds.has(model.id));
+  const selectedModelConfigIds = useMemo(() => selectedModels.map((model) => model.id), [selectedModels]);
   const selectedScorers = availableScorers.filter((scorer) => selectedScorerIds.has(scorer.id));
-  const latestRows = useMemo(() => groupResultsByRow(latestSession?.resultsJson ?? []), [latestSession]);
+  const latestRows = useMemo(() => [...groupResultsByRow(latestSession?.resultsJson ?? []), ...draftOutputRows], [draftOutputRows, latestSession]);
   const orderedModels = useMemo(
     () => (latestSession ? orderedSessionModels(latestSession, modelConfigs, modelColumnOrder).filter((model) => visibleModelColumnIds.has(model.id)) : []),
     [latestSession, modelColumnOrder, modelConfigs, visibleModelColumnIds],
@@ -94,6 +122,53 @@ export function EvaluationPlaygroundView({
     }, 700);
     return () => window.clearInterval(timer);
   }, [running]);
+
+  const persistPlaygroundSession = useCallback(async (session: PlaygroundSession) => {
+    const response = await fetch(`/api/admin/evaluations/playground/${session.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resultsJson: session.resultsJson,
+        sampleRecordingIds: session.sampleRecordingIds,
+      }),
+    });
+    const body = (await response.json().catch(() => null)) as { session?: PlaygroundSession; error?: string } | null;
+    if (!response.ok || !body?.session) {
+      setMessage(body?.error ?? "Could not update playground rows.");
+      return undefined;
+    }
+    return body.session;
+  }, []);
+
+  const rememberOutputState = useCallback(() => {
+    outputUndoStackRef.current = [...outputUndoStackRef.current.slice(-19), { latestSession: cloneSession(latestSession), draftRows: cloneOutputRows(draftOutputRows) }];
+    setUndoDepth(outputUndoStackRef.current.length);
+  }, [draftOutputRows, latestSession]);
+
+  const undoLastOutputAction = useCallback(async () => {
+    const snapshot = outputUndoStackRef.current.at(-1);
+    if (!snapshot) return;
+    outputUndoStackRef.current = outputUndoStackRef.current.slice(0, -1);
+    setUndoDepth(outputUndoStackRef.current.length);
+    setLatestSession(snapshot.latestSession);
+    setDraftOutputRows(cloneOutputRows(snapshot.draftRows));
+    if (snapshot.latestSession) {
+      const persisted = await persistPlaygroundSession(snapshot.latestSession);
+      if (persisted) setLatestSession(persisted);
+    }
+    setMessage("Undid the last output table action.");
+  }, [persistPlaygroundSession]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.key.toLowerCase() !== "z") return;
+      if (isEditableEventTarget(event.target) || outputUndoStackRef.current.length === 0) return;
+      event.preventDefault();
+      void undoLastOutputAction();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undoLastOutputAction, undoDepth]);
 
   async function runPreview() {
     setMessage(undefined);
@@ -117,10 +192,10 @@ export function EvaluationPlaygroundView({
       body: JSON.stringify({
         evalDatasetId: datasetId,
         sampleSize,
-        modelConfigIds: [...selectedModelIds],
+        modelConfigIds: selectedModelConfigIds,
         scorerConfigIds: [...selectedScorerIds],
         taskConfigJson: {
-          modelConfigIds: [...selectedModelIds],
+          modelConfigIds: selectedModelConfigIds,
           languageHintMode: "prompt_language",
           promptHintMode: "reference_for_mock",
           scorerProfile: "linguistic_diversity",
@@ -147,7 +222,10 @@ export function EvaluationPlaygroundView({
     const session = body.session;
     setProgressPct(100);
     setLatestSession(session);
-    setModelColumnOrder((current) => reconcileModelOrder(current, session.modelConfigIds));
+    setDraftOutputRows([]);
+    outputUndoStackRef.current = [];
+    setUndoDepth(0);
+    setModelColumnOrder(reconcileModelOrder(selectedModelConfigIds, session.modelConfigIds));
     setVisibleModelColumnIds((current) => reconcileVisibleModelColumns(current, session.modelConfigIds));
     setMessage(
       selectedScorerIds.size
@@ -216,8 +294,62 @@ export function EvaluationPlaygroundView({
     });
   }
 
+  function moveModelSelection(modelId: string, direction: -1 | 1) {
+    setModelSelectionOrder((current) => moveId(current, modelId, direction));
+  }
+
   function setColumnWidth(columnId: string, width: number) {
     setColumnWidths((current) => ({ ...current, [columnId]: width }));
+  }
+
+  function setAllModelColumnWidths(width: number) {
+    if (!latestSession) return;
+    setColumnWidths((current) => ({
+      ...current,
+      ...Object.fromEntries(latestSession.modelConfigIds.map((id) => [id, width])),
+    }));
+  }
+
+  function addOutputRow() {
+    rememberOutputState();
+    draftRowCounterRef.current += 1;
+    const rowKey = `draft-row-${Date.now()}-${draftRowCounterRef.current}`;
+    setDraftOutputRows((current) => [
+      ...current,
+      {
+        rowKey,
+        recordingId: rowKey,
+        inputText: "",
+        humanTranscript: "",
+        metadataJson: {},
+        isDraft: true,
+        resultsByModel: new Map(),
+      },
+    ]);
+    setMessage("Draft row added to the output table.");
+  }
+
+  async function deleteOutputRow(row: OutputTableRow) {
+    rememberOutputState();
+    if (row.isDraft) {
+      setDraftOutputRows((current) => current.filter((candidate) => candidate.rowKey !== row.rowKey));
+      setMessage("Draft row deleted.");
+      return;
+    }
+    if (!latestSession) return;
+    const nextSession: PlaygroundSession = {
+      ...latestSession,
+      sampleRecordingIds: latestSession.sampleRecordingIds.filter((id) => id !== (row.recordingId ?? row.rowKey)),
+      resultsJson: latestSession.resultsJson.filter((result) => (result.rowId ?? result.recordingId) !== row.rowKey),
+    };
+    setLatestSession(nextSession);
+    const persisted = await persistPlaygroundSession(nextSession);
+    if (persisted) setLatestSession(persisted);
+    setMessage("Row deleted from this playground session.");
+  }
+
+  function updateDraftOutputRow(rowKey: string, patch: Partial<Pick<OutputTableRow, "inputText" | "humanTranscript">>) {
+    setDraftOutputRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)));
   }
 
   function downloadCsv() {
@@ -379,7 +511,15 @@ export function EvaluationPlaygroundView({
             </div>
 
             <div className="space-y-4">
-              <Picker title="Models" items={modelConfigs} selectedIds={selectedModelIds} setSelectedIds={setSelectedModelIds} renderItem={renderModelItem} />
+              <Picker
+                title="Models"
+                items={orderedModelConfigs}
+                selectedIds={selectedModelIds}
+                setSelectedIds={setSelectedModelIds}
+                renderItem={renderModelItem}
+                onMoveItem={moveModelSelection}
+                orderLabel={(item) => (selectedModelIds.has(item.id) ? `${selectedModelConfigIds.indexOf(item.id) + 1}` : undefined)}
+              />
               <Picker title="Scorers" items={availableScorers} selectedIds={selectedScorerIds} setSelectedIds={setSelectedScorerIds} renderItem={renderScorerItem} />
             </div>
           </div>
@@ -428,7 +568,40 @@ export function EvaluationPlaygroundView({
                     Display
                   </Button>
                   {showDisplayMenu ? (
-                    <div className="absolute right-0 top-12 z-30 w-72 rounded-md border border-border bg-white p-2 shadow-lg">
+                    <div className="absolute right-0 top-12 z-30 w-80 rounded-md border border-border bg-white p-2 shadow-lg">
+                      <div className="border-b border-border px-2 pb-3">
+                        <p className="text-xs font-semibold uppercase tracking-normal text-zinc-500">Sizing</p>
+                        <div className="mt-3 space-y-3">
+                          <RangeControl
+                            label="Row height"
+                            value={outputRowHeight}
+                            min={180}
+                            max={560}
+                            step={20}
+                            onChange={setOutputRowHeight}
+                            valueLabel={`${outputRowHeight}px`}
+                          />
+                          <RangeControl
+                            label="Input column"
+                            value={columnWidths.input ?? 360}
+                            min={260}
+                            max={620}
+                            step={20}
+                            onChange={(width) => setColumnWidth("input", width)}
+                            valueLabel={`${columnWidths.input ?? 360}px`}
+                          />
+                          <RangeControl
+                            label="Model columns"
+                            value={orderedModels[0] ? columnWidths[orderedModels[0].id] ?? 360 : 360}
+                            min={260}
+                            max={620}
+                            step={20}
+                            onChange={setAllModelColumnWidths}
+                            valueLabel="all"
+                            disabled={orderedModels.length === 0}
+                          />
+                        </div>
+                      </div>
                       <label className="flex items-center justify-between rounded-md px-2 py-2 text-sm">
                         <span>Input / reference</span>
                         <input type="checkbox" checked disabled />
@@ -455,16 +628,20 @@ export function EvaluationPlaygroundView({
                   <Download className="h-4 w-4" />
                   CSV
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => router.push("/admin/evaluations/datasets")}>
+                <Button type="button" variant="secondary" onClick={undoLastOutputAction} disabled={undoDepth === 0}>
+                  <Undo2 className="h-4 w-4" />
+                  Undo
+                </Button>
+                <Button type="button" variant="secondary" onClick={addOutputRow}>
                   <Plus className="h-4 w-4" />
-                  Row
+                  Add row
                 </Button>
               </div>
-              <div className="overflow-x-auto rounded-md border border-border">
+              <div className="max-h-[72vh] overflow-auto rounded-md border border-border">
                 <table className="min-w-full divide-y divide-border text-left text-sm">
                   <thead className="bg-muted text-xs uppercase tracking-normal text-zinc-600">
                     <tr>
-                      <th className="sticky left-0 z-10 bg-muted px-3 py-2" style={{ minWidth: columnWidths.input ?? 360, width: columnWidths.input ?? 360 }}>
+                      <th className="sticky left-0 top-0 z-30 bg-muted px-3 py-2 shadow-[inset_0_-1px_0_var(--border)]" style={{ minWidth: columnWidths.input ?? 360, width: columnWidths.input ?? 360 }}>
                         <ColumnHeader
                           title="Input / reference"
                           width={columnWidths.input ?? 360}
@@ -472,7 +649,7 @@ export function EvaluationPlaygroundView({
                         />
                       </th>
                       {orderedModels.map((model) => (
-                        <th key={model.id} className="px-3 py-2" style={{ minWidth: columnWidths[model.id] ?? 360, width: columnWidths[model.id] ?? 360 }}>
+                        <th key={model.id} className="sticky top-0 z-20 bg-muted px-3 py-2 shadow-[inset_0_-1px_0_var(--border)]" style={{ minWidth: columnWidths[model.id] ?? 360, width: columnWidths[model.id] ?? 360 }}>
                           <ColumnHeader
                             title={model.displayName}
                             width={columnWidths[model.id] ?? 360}
@@ -487,22 +664,55 @@ export function EvaluationPlaygroundView({
                   <tbody className="divide-y divide-border bg-white">
                     {filteredRows.map((row) => (
                       <tr key={row.rowKey} className="align-top">
-                        <td className="sticky left-0 z-10 bg-white px-3 py-3" style={{ maxWidth: columnWidths.input ?? 360, width: columnWidths.input ?? 360 }}>
-                          <p className="font-medium">{row.inputText || row.instruction || "Dataset row"}</p>
-                          <p className="mt-2 text-xs text-zinc-500">Human transcript</p>
-                          <p className="mt-1 text-sm">{row.humanTranscript || "-"}</p>
-                          {row.recordingId && !row.recordingId.startsWith("import-row") && !row.recordingId.startsWith("manual-row") ? (
+                        <td className="sticky left-0 z-10 bg-white px-3 py-3 shadow-[inset_-1px_0_0_var(--border)]" style={{ maxWidth: columnWidths.input ?? 360, width: columnWidths.input ?? 360, height: outputRowHeight }}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              {row.isDraft ? <Badge tone="amber">Draft row</Badge> : null}
+                              {row.isDraft ? (
+                                <div className="mt-2 space-y-2">
+                                  <Label>Input / reference</Label>
+                                  <Textarea
+                                    className="min-h-20 resize-y"
+                                    value={row.inputText ?? ""}
+                                    onChange={(event) => updateDraftOutputRow(row.rowKey, { inputText: event.target.value })}
+                                  />
+                                  <Label>Human transcript</Label>
+                                  <Textarea
+                                    className="min-h-20 resize-y"
+                                    value={row.humanTranscript ?? ""}
+                                    onChange={(event) => updateDraftOutputRow(row.rowKey, { humanTranscript: event.target.value })}
+                                  />
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="font-medium">{row.inputText || row.instruction || "Dataset row"}</p>
+                                  <p className="mt-2 text-xs text-zinc-500">Human transcript</p>
+                                  <p className="mt-1 text-sm">{row.humanTranscript || "-"}</p>
+                                </>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void deleteOutputRow(row)}
+                              className="shrink-0 rounded-md border border-border bg-white p-2 text-zinc-600 hover:bg-muted hover:text-danger"
+                              aria-label="Delete row"
+                              title="Delete row"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                          {!row.isDraft && row.recordingId && !row.recordingId.startsWith("import-row") && !row.recordingId.startsWith("manual-row") ? (
                             <audio src={`/api/audio/${row.recordingId}`} controls className="mt-3 w-full" />
-                          ) : typeof row.metadataJson?.audioUrl === "string" ? (
+                          ) : !row.isDraft && typeof row.metadataJson?.audioUrl === "string" ? (
                             <audio src={row.metadataJson.audioUrl} controls className="mt-3 w-full" />
                           ) : (
-                            <p className="mt-3 text-xs text-zinc-500">Text-only row</p>
+                            <p className="mt-3 text-xs text-zinc-500">{row.isDraft ? "Draft rows are local until added to a dataset and rerun." : "Text-only row"}</p>
                           )}
                         </td>
                         {orderedModels.map((model) => {
                           const result = row.resultsByModel.get(model.id);
                           return (
-                            <td key={`${row.rowKey}-${model.id}`} className="px-3 py-3" style={{ maxWidth: columnWidths[model.id] ?? 360, width: columnWidths[model.id] ?? 360 }}>
+                            <td key={`${row.rowKey}-${model.id}`} className="px-3 py-3" style={{ maxWidth: columnWidths[model.id] ?? 360, width: columnWidths[model.id] ?? 360, height: outputRowHeight }}>
                               {result ? <ResultCell result={result} /> : <span className="text-zinc-500">Not run</span>}
                             </td>
                           );
@@ -574,9 +784,63 @@ function mergeScorers(serverScorers: ScorerConfig[], localScorers: ScorerConfig[
   return [...byId.values()];
 }
 
+function cloneSession(session?: PlaygroundSession) {
+  if (!session) return undefined;
+  return {
+    ...session,
+    sampleRecordingIds: [...session.sampleRecordingIds],
+    modelConfigIds: [...session.modelConfigIds],
+    scorerConfigIds: [...session.scorerConfigIds],
+    taskConfigJson: { ...session.taskConfigJson },
+    resultsJson: session.resultsJson.map(clonePlaygroundResult),
+  };
+}
+
+function clonePlaygroundResult(result: PlaygroundResult): PlaygroundResult {
+  return {
+    ...result,
+    scores: { ...result.scores },
+    tags: result.tags ? [...result.tags] : undefined,
+    metadataJson: result.metadataJson ? { ...result.metadataJson } : undefined,
+    scorerOutputs: result.scorerOutputs?.map((output) => ({
+      ...output,
+      metricKeys: [...output.metricKeys],
+      scores: { ...output.scores },
+    })),
+  };
+}
+
+function cloneOutputRows(rows: OutputTableRow[]) {
+  return rows.map((row) => ({
+    ...row,
+    metadataJson: row.metadataJson ? { ...row.metadataJson } : undefined,
+    resultsByModel: new Map(row.resultsByModel),
+  }));
+}
+
+function isEditableEventTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
 function reconcileModelOrder(current: string[], activeIds: string[]) {
   const kept = current.filter((id) => activeIds.includes(id));
   return [...kept, ...activeIds.filter((id) => !kept.includes(id))];
+}
+
+function orderModelsByIds(models: SttModelConfig[], order: string[]) {
+  const orderIndex = new Map(order.map((id, index) => [id, index]));
+  return [...models].sort((a, b) => (orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
+function moveId(ids: string[], id: string, direction: -1 | 1) {
+  const next = [...ids];
+  const index = next.indexOf(id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= next.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
 }
 
 function reconcileVisibleModelColumns(current: Set<string>, activeIds: string[]) {
@@ -614,12 +878,16 @@ function Picker<T extends { id: string; isEnabled?: boolean }>({
   selectedIds,
   setSelectedIds,
   renderItem,
+  onMoveItem,
+  orderLabel,
 }: {
   title: string;
   items: T[];
   selectedIds: Set<string>;
   setSelectedIds: (value: Set<string>) => void;
   renderItem: (item: T) => React.ReactNode;
+  onMoveItem?: (id: string, direction: -1 | 1) => void;
+  orderLabel?: (item: T) => string | undefined;
 }) {
   return (
     <div className="rounded-md border border-border bg-white">
@@ -628,24 +896,94 @@ function Picker<T extends { id: string; isEnabled?: boolean }>({
         <Badge>{selectedIds.size} selected</Badge>
       </div>
       <div className="max-h-64 overflow-y-auto p-2">
-        {items.map((item) => (
-          <label key={item.id} className="flex items-start justify-between gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted">
-            <span className="min-w-0">{renderItem(item)}</span>
-            <input
-              type="checkbox"
-              checked={selectedIds.has(item.id)}
-              disabled={item.isEnabled === false}
-              onChange={(event) => {
-                const next = new Set(selectedIds);
-                if (event.target.checked) next.add(item.id);
-                else next.delete(item.id);
-                setSelectedIds(next);
-              }}
-            />
-          </label>
-        ))}
+        {items.map((item, index) => {
+          const label = orderLabel?.(item);
+          return (
+            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted">
+              <label className="flex min-w-0 items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selectedIds.has(item.id)}
+                  disabled={item.isEnabled === false}
+                  onChange={(event) => {
+                    const next = new Set(selectedIds);
+                    if (event.target.checked) next.add(item.id);
+                    else next.delete(item.id);
+                    setSelectedIds(next);
+                  }}
+                />
+                <span className="min-w-0">
+                  {label ? <span className="mb-1 inline-flex h-5 min-w-5 items-center justify-center rounded bg-zinc-900 px-1.5 text-[11px] font-semibold text-white">{label}</span> : null}
+                  {renderItem(item)}
+                </span>
+              </label>
+              {onMoveItem ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onMoveItem(item.id, -1)}
+                    disabled={index === 0}
+                    className="rounded p-1 hover:bg-white disabled:opacity-40"
+                    aria-label={`Move ${item.id} up`}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveItem(item.id, 1)}
+                    disabled={index === items.length - 1}
+                    className="rounded p-1 hover:bg-white disabled:opacity-40"
+                    aria-label={`Move ${item.id} down`}
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+function RangeControl({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  valueLabel,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  valueLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block text-sm">
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span className="text-xs text-zinc-500">{valueLabel}</span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 w-full"
+      />
+    </label>
   );
 }
 
@@ -849,18 +1187,7 @@ function ColumnHeader({
 }
 
 function groupResultsByRow(results: PlaygroundResult[]) {
-  const rows = new Map<
-    string,
-    {
-      rowKey: string;
-      recordingId?: string;
-      inputText?: string;
-      instruction?: string;
-      humanTranscript?: string;
-      metadataJson?: Record<string, unknown>;
-      resultsByModel: Map<string, PlaygroundResult>;
-    }
-  >();
+  const rows = new Map<string, OutputTableRow>();
   for (const result of results) {
     const rowKey = result.rowId ?? result.recordingId;
     const row =

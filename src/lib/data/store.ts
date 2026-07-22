@@ -675,6 +675,14 @@ export function markPlaygroundPromoted(playgroundSessionId: string, evaluationRu
   return session;
 }
 
+export function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[] }) {
+  const session = getData().playgroundSessions.find((candidate) => candidate.id === input.playgroundSessionId);
+  if (!session) throw new Error("Playground session not found.");
+  session.resultsJson = input.resultsJson;
+  session.sampleRecordingIds = input.sampleRecordingIds;
+  return session;
+}
+
 export function getModelConfigs() {
   const hasKeys = {
     mock: true,

@@ -135,6 +135,10 @@ export async function markPlaygroundPromoted(playgroundSessionId: string, evalua
   return repo().markPlaygroundPromoted(playgroundSessionId, evaluationRunId);
 }
 
+export async function updatePlaygroundSession(input: Parameters<typeof memory.updatePlaygroundSession>[0]) {
+  return repo().updatePlaygroundSession(input);
+}
+
 export async function getModelConfigs() {
   return repo().getModelConfigs();
 }
