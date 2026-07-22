@@ -1,157 +1,156 @@
-# RoboCommand_Codeswitch_JAEN
+# CommandLoop
 
-A pilot Japanese–English code-switched speech benchmark for evaluating speech-to-text systems on robotic commands.
+CommandLoop is a Next.js MVP for collecting spoken robot-style commands, reviewing recording quality, and evaluating speech-to-text models across useful data slices.
 
-- **Status:** v0.1 starter repository
-- **Maintainer:** [kobekkoo](https://github.com/kobekkoo)
-- **Dataset:** `https://huggingface.co/datasets/kobekkoo/RoboCommand_Codeswitch_JAEN`
-- **Project tool:** CommandLoop
+The app runs in two modes:
 
-> This repository is the laboratory notebook, collection toolkit, validation code, and benchmark protocol. The gated audio dataset should be hosted on Hugging Face rather than duplicated in this GitHub repository.
+- Local demo mode: no Supabase credentials required. Data and uploaded audio live in the Node process for development and tests.
+- Supabase mode: run the SQL migration, configure Supabase env vars, and replace the repository adapter with persistent Supabase calls as the production storage boundary.
 
-## Research question
+## Stack
 
-How does speech-to-text performance on Japanese–English robotic commands change across different shapes of code-switching?
+- Next.js App Router with TypeScript strict mode
+- Tailwind CSS and small shadcn-style UI primitives
+- Supabase Postgres schema and private `command-audio` storage bucket migration
+- Zod, React Hook Form, Recharts, OpenAI JavaScript SDK
+- Vitest unit tests and Playwright e2e tests
 
-The initial benchmark focuses on:
+## Commands
 
-1. **Word-level switching** — a word from one language is embedded in the other.
-2. **Phrase-level switching** — a multi-word phrase is embedded in the other language.
-3. **Clause-level switching** — the language changes across clauses within one command.
+```bash
+corepack pnpm install
+corepack pnpm dev
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm test:e2e
+corepack pnpm build
+corepack pnpm seed
+```
 
-The dataset is **evaluation-only**. It is not licensed for model training, fine-tuning, voice cloning, speaker identification, or commercial use.
+Local admin login defaults to `commandloop-admin` when `ADMIN_PASSWORD` is absent. Set a real password before any shared deployment.
 
-## Repository map
+## Environment
+
+Copy `.env.example` to `.env.local`.
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+ADMIN_PASSWORD=
+ADMIN_SESSION_SECRET=
+OPENAI_API_KEY=
+```
+
+`OPENAI_API_KEY` is optional. Without it, OpenAI model configs are disabled and the deterministic mock STT provider remains available.
+
+## Supabase Setup
+
+1. Create a Supabase project.
+2. Run `supabase/migrations/202607100001_initial_schema.sql`.
+3. Confirm the `command-audio` bucket is private.
+4. Store service-role and anon credentials in environment variables.
+5. Keep `SUPABASE_SERVICE_ROLE_KEY` and `OPENAI_API_KEY` server-only.
+6. For existing projects, also run `supabase/migrations/202607150001_add_input_validity.sql` to add the
+   `recordings.input_validity` metadata field. New recordings default to `valid_command`; invalid examples can be
+   labeled as `silence`, `background_noise`, `music`, `unintelligible`, or `unrelated_speech`.
+
+The current local repository uses an in-process store so the app is runnable in this environment without a live database. The migration captures the production relational shape, indexes, foreign keys, and bucket settings.
+
+Detailed setup and migration next steps are in `docs/supabase-setup.md`.
+
+## Data Flow
+
+```mermaid
+flowchart LR
+  A["Contributor consent"] --> B["Optional profile"]
+  B --> C["Session setup"]
+  C --> D["Mic check"]
+  D --> E["Prompt assignments"]
+  E --> F["Browser recording"]
+  F --> G["Private audio storage"]
+  F --> H["Recording metadata"]
+  H --> I["Admin review"]
+  G --> I
+  I --> J["Accepted reference transcript"]
+  J --> K["STT evaluation run"]
+  K --> L["WER/CER metrics"]
+  L --> M["Slice analytics"]
+  M --> N["Follow-up recipe"]
+```
+
+## Seed Data Recipes
+
+Local demo mode now starts with:
+
+- `Robot Home Commands v1`: broad household robot commands across English, Japanese, and English-Japanese.
+- `RobotCS Household EN-JA v1`: focused English-Japanese household code-switching prompts across word, phrase,
+  sentence, and speech levels for RobotCS-style STT benchmarking.
+- `Hospital Nurse Assistance v1`: draft clinical-support sample prompts.
+
+The RobotCS prompt pack is also available at `examples/robot-cs-household-en-ja-v1.json` and from the admin recipe
+import panel as a downloadable JSON file.
+
+## P1 Failure Analysis
+
+Evaluations > Metrics now includes an Error Confusion Explorer and an Invalid Input & Hallucination Queue. The explorer
+uses normalized transcript alignment to rank substitutions, deletions, and insertions, then tags object, direction,
+number/quantity, action, negation, safety, hesitation, and self-correction patterns. Each pattern keeps sample counts and
+marks fewer than 10 samples as limited.
+
+False actionable command rate means: among clips labeled with an `input_validity` other than `valid_command`, the STT
+transcript still contains a recognizable robot action such as pick up, move, walk, open, close, stop, turn, place, pour,
+clean, search, hand over, or equivalent Japanese command terms. The detector is intentionally transparent and modular in
+`src/lib/stt/failure-analysis.ts`.
+
+Flywheel now shows a Next Collection Priority Generator instead of generic ranked slices. The default rule is:
 
 ```text
-.
-├── README.md
-├── LICENSE
-├── DATA_LICENSE.md
-├── CITATION.cff
-├── CONTRIBUTING.md
-├── requirements.txt
-├── config/
-│   └── commandloop_field_map.example.json
-├── data/
-│   └── sample/
-│       └── metadata.csv
-├── docs/
-│   ├── collection_recipe_v0.1.md
-│   ├── consent_and_release_template.md
-│   ├── evaluation_protocol.md
-│   ├── lab_notebook_template.md
-│   ├── privacy_and_takedown.md
-│   ├── release_checklist.md
-│   ├── research_question.md
-│   └── schema_v0.1.md
-├── huggingface/
-│   ├── README.md
-│   ├── GATED_ACCESS_SETUP.md
-│   └── data/
-│       └── test/
-│           └── metadata.csv
-├── results/
-│   └── baseline_results_template.csv
-└── scripts/
-    ├── compute_error_rates.py
-    ├── export_commandloop.py
-    ├── release_check.py
-    └── validate_dataset.py
+priority_score = failure_rate * severity_weight * coverage_gap_weight
 ```
 
-## Quick start
+Default target coverage is 50 recordings per slice. Severity is 1 for harmless transcript errors, 2 for object/location/
+number/direction errors, and 3 for action/negation/safety or false-actionable failures. Coverage gap increases priority
+when a slice is below the target and drops once target coverage is reached.
 
-Create a Python environment and install the small toolkit:
+Run `corepack pnpm test src/lib/stt/failure-analysis.test.ts` for focused failure-analysis coverage, or `corepack pnpm test`
+for the full unit test suite.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## Schema Overview
+
+```mermaid
+erDiagram
+  CONTRIBUTORS ||--o{ RECORDING_SESSIONS : starts
+  COLLECTION_RECIPES ||--o{ COMMAND_PROMPTS : contains
+  COLLECTION_RECIPES ||--o{ RECORDING_SESSIONS : uses
+  RECORDING_SESSIONS ||--o{ PROMPT_ASSIGNMENTS : assigns
+  COMMAND_PROMPTS ||--o{ PROMPT_ASSIGNMENTS : selected
+  PROMPT_ASSIGNMENTS ||--o| RECORDINGS : produces
+  RECORDINGS ||--o| QUALITY_REVIEWS : reviewed_by
+  COLLECTION_RECIPES ||--o{ EVALUATION_RUNS : evaluates
+  EVALUATION_RUNS ||--o{ EVALUATION_RUN_MODELS : includes
+  STT_MODEL_CONFIGS ||--o{ EVALUATION_RUN_MODELS : selected
+  EVALUATION_RUNS ||--o{ STT_RESULTS : creates
+  RECORDINGS ||--o{ STT_RESULTS : transcribed
+  STT_RESULTS ||--o| EVALUATION_METRICS : scored
 ```
 
-Validate the sample schema:
+## MVP Safeguards
 
-```bash
-python3 scripts/validate_dataset.py \
-  --metadata data/sample/metadata.csv \
-  --audio-dir data/sample/audio \
-  --allow-missing-audio
-```
+- Admin session cookie is HTTP-only, signed, SameSite=Lax, and secure in production.
+- Service credentials and OpenAI keys are never exposed to client components.
+- Audio uploads validate MIME type and a 10 MB size limit.
+- Review ground truth is distinct from displayed prompt text, contributor transcript, and model hypothesis.
+- Audio playback is served through an authenticated endpoint, not permanent public URLs.
+- Contributor withdrawal marks contributor data withdrawn and removes local demo audio objects.
 
-Export a Supabase or CommandLoop CSV into the provisional Hugging Face format:
+Before a public production launch, strengthen CSRF protection with explicit anti-CSRF tokens, add durable rate limiting, complete a Supabase repository implementation, add audit logging, and define formal data-retention/delete workflows.
 
-```bash
-python3 scripts/export_commandloop.py \
-  --input path/to/commandloop_export.csv \
-  --mapping config/commandloop_field_map.example.json \
-  --output-dir build/hf_export
-```
+## Troubleshooting
 
-Calculate CER and space-delimited WER from model predictions:
-
-```bash
-python3 scripts/compute_error_rates.py \
-  --metadata build/hf_export/metadata.csv \
-  --predictions path/to/predictions.csv \
-  --output results/baseline_results.csv
-```
-
-Run the pre-release check:
-
-```bash
-python3 scripts/release_check.py .
-```
-
-## Recommended v0.1 definition of done
-
-- 50–100 consented WAV recordings
-- Japanese and English within every benchmark command
-- Three switching categories: word, phrase, and clause
-- 16 kHz, mono PCM WAV
-- One command per file
-- Pseudonymous speaker IDs
-- Manual transcript review
-- Manually gated Hugging Face access
-- Baseline evaluation on at least two STT models
-- Results reported by code-switching slice
-- No participant personal email published
-- Confidential privacy and takedown contact configured: `kobekko94@gmail.com`
-
-## Licensing
-
-The assets have separate licenses:
-
-- **Software and scripts:** MIT License — see [`LICENSE`](LICENSE).
-- **Audio, transcripts, and dataset metadata:** custom evaluation-only terms — see [`DATA_LICENSE.md`](DATA_LICENSE.md).
-
-The custom dataset license is a practical pilot draft, not legal advice. Have it reviewed before relying on it for a high-stakes or large-scale release.
-
-## Public identity and contact
-
-The public author and maintainer identity is `kobekkoo`. A full legal name does not need to appear in the public repository, dataset card, or citation file.
-
-For participant consent records, the person collecting the recordings should use their legal name or legal entity privately so that the consent record identifies the responsible party.
-
-- General questions: use GitHub Discussions.
-- Data-quality reports: use GitHub Issues.
-- Confidential privacy or takedown requests: email **[kobekko94@gmail.com](mailto:kobekko94@gmail.com)**.
-
-## Citation
-
-GitHub will render a “Cite this repository” control from [`CITATION.cff`](CITATION.cff). Until a DOI is created, cite the repository and version:
-
-```bibtex
-@dataset{kobekkoo_robocommand_codeswitch_jaen_2026,
-  author       = {{kobekkoo}},
-  title        = {RoboCommand_Codeswitch_JAEN},
-  year         = {2026},
-  version      = {0.1.0},
-  publisher    = {Hugging Face},
-  url          = {https://huggingface.co/datasets/kobekkoo/RoboCommand_Codeswitch_JAEN}
-}
-```
-
-## Acknowledgment
-
-The project structure was inspired in part by public code-switching datasets such as SwitchLingua. No SwitchLingua recordings or transcripts should be copied into this dataset unless their license and terms explicitly permit the intended reuse and attribution is provided.
+- Microphone permission denied: check browser site permissions and use `http://localhost:3000` or HTTPS.
+- No OpenAI models available: set `OPENAI_API_KEY`; otherwise use Mock Echo.
+- Empty admin dashboard: complete contributor upload and review flow first.
+- Playwright browser missing: run `corepack pnpm exec playwright install chromium`.

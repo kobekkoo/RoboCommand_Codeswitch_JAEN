@@ -1,0 +1,20 @@
+[
+  {
+    "promptMode": "read_exactly",
+    "displayInstruction": "Read this command exactly.",
+    "exactText": "Pick up the green mug.",
+    "language": "English",
+    "taskType": "Pick up",
+    "commandVariant": "Canonical",
+    "targetIntent": "pick_up_object"
+  },
+  {
+    "promptMode": "natural_paraphrase",
+    "displayInstruction": "Ask the robot to bring you the blue bottle.",
+    "exactText": "",
+    "language": "English",
+    "taskType": "Hand over",
+    "commandVariant": "Indirect",
+    "targetIntent": "bring_object"
+  }
+]

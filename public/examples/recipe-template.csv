@@ -1,0 +1,4 @@
+promptMode,displayInstruction,exactText,language,taskType,commandVariant,targetIntent
+read_exactly,Read this command exactly.,Pick up the green mug.,English,Pick up,Canonical,pick_up_object
+natural_paraphrase,Ask the robot to bring you the blue bottle.,,English,Hand over,Indirect,bring_object
+code_switching,Use Japanese and English to tell the robot to stop.,,English-Japanese,Stop or pause,Code-switched,stop_motion

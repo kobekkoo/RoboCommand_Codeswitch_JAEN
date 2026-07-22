@@ -1,0 +1,7 @@
+.next
+.next.*
+node_modules
+test-results
+work
+coverage
+.DS_Store
