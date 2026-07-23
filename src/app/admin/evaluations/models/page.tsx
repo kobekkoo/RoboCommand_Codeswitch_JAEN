@@ -18,8 +18,8 @@ export default async function EvaluationModelsPage() {
         <div>
           <h1 className="text-2xl font-semibold">STT model glossary</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Mock models validate the pipeline. Hosted STT models become available when their server-side keys are
-            configured: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, and `DEEPGRAM_API_KEY`.
+            Hosted STT models become available when their server-side keys are configured: `OPENAI_API_KEY`,
+            `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, and `DEEPGRAM_API_KEY`.
           </p>
         </div>
         <Link href="/admin/evaluations" className="rounded-md border border-border bg-white px-3 py-2 text-sm hover:bg-muted">

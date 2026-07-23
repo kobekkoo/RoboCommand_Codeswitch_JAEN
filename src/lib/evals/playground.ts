@@ -38,7 +38,8 @@ export async function runPlaygroundPreview(input: {
   const dataset = data.evalDatasets.find((candidate) => candidate.id === input.evalDatasetId);
   if (!dataset) throw new Error("Eval dataset not found.");
   const enabledModels = await getModelConfigs();
-  const modelMap = new Map(enabledModels.filter((model) => model.isEnabled).map((model) => [model.id, model]));
+  const legacyMockModels = data.modelConfigs.filter((model) => model.provider === "mock" && input.modelConfigIds.includes(model.id));
+  const modelMap = new Map([...enabledModels, ...legacyMockModels].filter((model) => model.isEnabled).map((model) => [model.id, model]));
   const scorers = data.scorerConfigs.filter((scorer) => input.scorerConfigIds.includes(scorer.id) && scorer.isEnabled);
   const sampleItems = await previewItemsForDataset(dataset.rowsJson?.length ? dataset.rowsJson : undefined, dataset.recordingIds, input.sampleSize);
   const sampleRecordingIds = sampleItems.map((item) => item.row.sourceRecordingId ?? item.row.id);

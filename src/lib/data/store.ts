@@ -675,26 +675,29 @@ export function markPlaygroundPromoted(playgroundSessionId: string, evaluationRu
   return session;
 }
 
-export function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[] }) {
+export function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[]; modelConfigIds: string[] }) {
   const session = getData().playgroundSessions.find((candidate) => candidate.id === input.playgroundSessionId);
   if (!session) throw new Error("Playground session not found.");
   session.resultsJson = input.resultsJson;
   session.sampleRecordingIds = input.sampleRecordingIds;
+  session.modelConfigIds = input.modelConfigIds;
   return session;
 }
 
 export function getModelConfigs() {
   const hasKeys = {
-    mock: true,
+    mock: false,
     openai: Boolean(process.env.OPENAI_API_KEY),
     gemini: Boolean(process.env.GEMINI_API_KEY),
     elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
     deepgram: Boolean(process.env.DEEPGRAM_API_KEY),
   };
-  return getData().modelConfigs.map((config) => ({
-    ...config,
-    isEnabled: config.isEnabled && hasKeys[config.provider],
-  }));
+  return getData().modelConfigs
+    .filter((config) => config.provider !== "mock")
+    .map((config) => ({
+      ...config,
+      isEnabled: config.isEnabled && hasKeys[config.provider],
+    }));
 }
 
 export function createEvaluationRun(input: {

@@ -53,6 +53,9 @@ type OutputUndoSnapshot = {
   draftRows: OutputTableRow[];
 };
 
+const modelSelectionOrderStorageKey = "commandloop:playground-model-order";
+const modelColumnOrderStorageKey = "commandloop:playground-output-model-order";
+
 export function EvaluationPlaygroundView({
   datasets,
   modelConfigs,
@@ -123,6 +126,14 @@ export function EvaluationPlaygroundView({
     return () => window.clearInterval(timer);
   }, [running]);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setModelSelectionOrder(readStoredOrder(modelSelectionOrderStorageKey, modelConfigs.map((model) => model.id)));
+      setModelColumnOrder(readStoredOrder(modelColumnOrderStorageKey, latestSession?.modelConfigIds ?? []));
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [latestSession?.id, latestSession?.modelConfigIds, modelConfigs]);
+
   const persistPlaygroundSession = useCallback(async (session: PlaygroundSession) => {
     const response = await fetch(`/api/admin/evaluations/playground/${session.id}`, {
       method: "PATCH",
@@ -130,6 +141,7 @@ export function EvaluationPlaygroundView({
       body: JSON.stringify({
         resultsJson: session.resultsJson,
         sampleRecordingIds: session.sampleRecordingIds,
+        modelConfigIds: session.modelConfigIds,
       }),
     });
     const body = (await response.json().catch(() => null)) as { session?: PlaygroundSession; error?: string } | null;
@@ -220,13 +232,16 @@ export function EvaluationPlaygroundView({
       return;
     }
     const session = body.session;
+    const outputOrder = reconcileModelOrder(selectedModelConfigIds, session.modelConfigIds);
+    const orderedSession = { ...session, modelConfigIds: outputOrder };
     setProgressPct(100);
-    setLatestSession(session);
+    setLatestSession(orderedSession);
     setDraftOutputRows([]);
     outputUndoStackRef.current = [];
     setUndoDepth(0);
-    setModelColumnOrder(reconcileModelOrder(selectedModelConfigIds, session.modelConfigIds));
-    setVisibleModelColumnIds((current) => reconcileVisibleModelColumns(current, session.modelConfigIds));
+    setModelColumnOrder(outputOrder);
+    storeOrder(modelColumnOrderStorageKey, outputOrder);
+    setVisibleModelColumnIds((current) => reconcileVisibleModelColumns(current, outputOrder));
     setMessage(
       selectedScorerIds.size
         ? "Preview complete. Review row outputs and scorer traces below."
@@ -285,17 +300,41 @@ export function EvaluationPlaygroundView({
 
   function moveModelColumn(modelId: string, direction: -1 | 1) {
     setModelColumnOrder((current) => {
-      const next = current.length ? [...current] : latestSession?.modelConfigIds ?? [];
-      const index = next.indexOf(modelId);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= next.length) return next;
-      [next[index], next[target]] = [next[target], next[index]];
+      const next = moveId(current.length ? current : latestSession?.modelConfigIds ?? [], modelId, direction);
+      storeOrder(modelColumnOrderStorageKey, next);
+      syncModelSelectionOrder(next);
+      void persistLatestSessionModelOrder(next);
       return next;
     });
   }
 
   function moveModelSelection(modelId: string, direction: -1 | 1) {
-    setModelSelectionOrder((current) => moveId(current, modelId, direction));
+    setModelSelectionOrder((current) => {
+      const next = moveId(reconcileModelOrder(current, modelConfigs.map((model) => model.id)), modelId, direction);
+      storeOrder(modelSelectionOrderStorageKey, next);
+      const nextColumnOrder = latestSession ? reconcileModelOrder(next, latestSession.modelConfigIds) : next;
+      setModelColumnOrder(nextColumnOrder);
+      storeOrder(modelColumnOrderStorageKey, nextColumnOrder);
+      void persistLatestSessionModelOrder(nextColumnOrder);
+      return next;
+    });
+  }
+
+  function syncModelSelectionOrder(activeOrder: string[]) {
+    setModelSelectionOrder((current) => {
+      const next = mergePreferredModelOrder(current, activeOrder, modelConfigs.map((model) => model.id));
+      storeOrder(modelSelectionOrderStorageKey, next);
+      return next;
+    });
+  }
+
+  async function persistLatestSessionModelOrder(order: string[]) {
+    if (!latestSession) return;
+    const nextModelConfigIds = reconcileModelOrder(order, latestSession.modelConfigIds);
+    const nextSession = { ...latestSession, modelConfigIds: nextModelConfigIds };
+    setLatestSession(nextSession);
+    const persisted = await persistPlaygroundSession(nextSession);
+    if (persisted) setLatestSession(persisted);
   }
 
   function setColumnWidth(columnId: string, width: number) {
@@ -782,6 +821,33 @@ function mergeScorers(serverScorers: ScorerConfig[], localScorers: ScorerConfig[
   const byId = new Map(serverScorers.map((scorer) => [scorer.id, scorer]));
   for (const scorer of localScorers) byId.set(scorer.id, scorer);
   return [...byId.values()];
+}
+
+function readStoredOrder(key: string, fallback: string[]) {
+  if (typeof window === "undefined") return fallback;
+  const saved = window.localStorage.getItem(key);
+  if (!saved) return fallback;
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return fallback;
+    return reconcileModelOrder(parsed.filter((value): value is string => typeof value === "string"), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function storeOrder(key: string, order: string[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(order));
+}
+
+function mergePreferredModelOrder(current: string[], activeOrder: string[], allIds: string[]) {
+  const activeSet = new Set(activeOrder);
+  const next = [
+    ...activeOrder,
+    ...current.filter((id) => !activeSet.has(id)),
+  ];
+  return reconcileModelOrder(next, allIds);
 }
 
 function cloneSession(session?: PlaygroundSession) {

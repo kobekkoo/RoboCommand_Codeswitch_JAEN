@@ -553,7 +553,7 @@ function ScorerScorePills({
 
 function buildExperimentRows(rows: EvaluationReportRow[]) {
   return rows.map((row, index): ExperimentTableRow => {
-    const input = row.prompt?.displayInstruction ?? row.prompt?.exactText ?? row.recording?.contributorTranscript ?? "";
+    const input = row.prompt?.exactText?.trim() || row.prompt?.displayInstruction?.trim() || row.recording?.contributorTranscript?.trim() || "";
     const humanTranscript = row.review?.reviewedTranscript ?? row.recording?.contributorTranscript ?? "";
     const output = row.result.hypothesis ?? "";
     const classification = displayCategory(rowCategory(row));

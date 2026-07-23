@@ -1236,13 +1236,14 @@ export async function markPlaygroundPromoted(playgroundSessionId: string, evalua
   return mapPlaygroundSession(throwIfError(data, error, "Could not mark playground promoted"));
 }
 
-export async function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[] }) {
+export async function updatePlaygroundSession(input: { playgroundSessionId: string; resultsJson: PlaygroundResult[]; sampleRecordingIds: string[]; modelConfigIds: string[] }) {
   const supabase = await client();
   const { data, error } = await supabase
     .from("playground_sessions")
     .update({
       results_json: input.resultsJson,
       sample_recording_ids: input.sampleRecordingIds,
+      model_config_ids: input.modelConfigIds,
     })
     .eq("id", input.playgroundSessionId)
     .select("*")
@@ -1254,16 +1255,18 @@ export async function getModelConfigs() {
   const data = await getData();
   const env = getEnv();
   const hasKeys = {
-    mock: true,
+    mock: false,
     openai: Boolean(env.OPENAI_API_KEY),
     gemini: Boolean(env.GEMINI_API_KEY),
     elevenlabs: Boolean(env.ELEVENLABS_API_KEY),
     deepgram: Boolean(env.DEEPGRAM_API_KEY),
   };
-  return data.modelConfigs.map((config) => ({
-    ...config,
-    isEnabled: config.isEnabled && hasKeys[config.provider],
-  }));
+  return data.modelConfigs
+    .filter((config) => config.provider !== "mock")
+    .map((config) => ({
+      ...config,
+      isEnabled: config.isEnabled && hasKeys[config.provider],
+    }));
 }
 
 export async function createEvaluationRun(input: {

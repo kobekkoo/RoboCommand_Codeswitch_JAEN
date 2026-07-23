@@ -36,6 +36,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ se
       playgroundSessionId: sessionId,
       resultsJson: parsed.data.resultsJson as PlaygroundResult[],
       sampleRecordingIds: parsed.data.sampleRecordingIds,
+      modelConfigIds: parsed.data.modelConfigIds,
     });
     return NextResponse.json({ session });
   } catch (error) {

@@ -219,6 +219,7 @@ export const playgroundPromoteSchema = z.object({
 export const playgroundSessionUpdateSchema = z.object({
   resultsJson: z.array(z.record(z.string(), z.unknown())),
   sampleRecordingIds: z.array(z.string().min(1)),
+  modelConfigIds: z.array(z.string().min(1)),
 });
 
 export function validateAudioUpload(file: File | Blob, mimeType: string) {

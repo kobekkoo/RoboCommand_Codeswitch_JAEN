@@ -42,7 +42,7 @@ export function EvaluationRunner({
     () => new Set(scorerConfigs.filter((scorer) => scorer.isEnabled && scorer.scorerType === "deterministic").map((scorer) => scorer.id)),
   );
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(
-    () => new Set(modelConfigs.filter((model) => model.provider === "mock" && model.isEnabled).map((model) => model.id)),
+    () => new Set(modelConfigs.filter((model) => model.isEnabled).slice(0, 2).map((model) => model.id)),
   );
   const snapshotByRunId = new Map(experimentSnapshots.map((snapshot) => [snapshot.evaluationRunId, snapshot]));
   const datasetById = new Map(datasets.map((dataset) => [dataset.id, dataset]));
@@ -53,7 +53,7 @@ export function EvaluationRunner({
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       const enabledIds = new Set(modelConfigs.filter((model) => model.isEnabled).map((model) => model.id));
-      const fallbackIds = modelConfigs.filter((model) => model.provider === "mock" && model.isEnabled).map((model) => model.id);
+      const fallbackIds = modelConfigs.filter((model) => model.isEnabled).slice(0, 2).map((model) => model.id);
       const saved = window.localStorage.getItem(modelSelectionStorageKey);
       const parsed = saved ? parseSavedModelIds(saved).filter((id) => enabledIds.has(id)) : [];
       setSelectedModelIds(new Set(parsed.length ? parsed : fallbackIds));
